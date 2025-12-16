@@ -1,0 +1,5 @@
+{
+  "name": "Iniciativas CAPCA",
+  "description": "Una aplicación para la gestión del ciclo de vida de iniciativas de inversión pública, replicando el flujo de identificación y edición.",
+  "requestFramePermissions": []
+}
