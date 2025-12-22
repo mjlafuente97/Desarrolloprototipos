@@ -50,6 +50,7 @@ export interface ExpenseItem {
   total: string;
   spent: string;
   execution: string;
+  category: 'investment' | 'operation';
 }
 
 export interface LicitacionDate {
@@ -68,8 +69,16 @@ export interface LicitacionData {
   amount: string;
 }
 
+export interface ExecutionProgressRow {
+  id: string;
+  label: string;
+  detail: string;
+  comment: string;
+}
+
 export interface ExecutionData {
-  licitacion: LicitacionData | null;
+  licitaciones: LicitacionData[]; // Array to support multiple tenders
+  progress: ExecutionProgressRow[] | null;
   documents?: DocumentItem[];
 }
 
@@ -86,10 +95,17 @@ export interface BeneficiariesData {
   indirect: string;
 }
 
-export interface CoverageData {
+export interface CoverageNucleus {
+  id: string;
+  name: string;
   link: string;
-  hasMap: boolean; // boolean to toggle the visual map state
 }
+
+export interface CoverageData {
+  nuclei: CoverageNucleus[];
+}
+
+export type FulfillmentStatus = 'pending' | 'achieved' | 'not_achieved' | 'in_progress';
 
 export interface ExpectedResult {
   id: string;
@@ -97,6 +113,8 @@ export interface ExpectedResult {
   indicator: string;
   baseLine: string;
   goal: string;
+  status?: FulfillmentStatus;
+  fulfillmentComment?: string;
 }
 
 export interface FormulationData {
@@ -156,7 +174,7 @@ export interface InitiativeState {
   intervention: InterventionData | null;
   typology: TypologyData | null;
   formulation: FormulationData;
-  investment?: InvestmentData | null;
+  investments: InvestmentData[]; // Changed to array for multiple financing
   execution?: ExecutionData | null;
   participation: ParticipationEntry[]; // Added participation array
   expenses: ExpenseItem[]; 

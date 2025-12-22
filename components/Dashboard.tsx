@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Search, Plus, LayoutGrid, List, ChevronDown, ChevronLeft, ChevronRight, Star, MoreHorizontal } from 'lucide-react';
 import { InitiativeState } from '../types';
@@ -9,7 +10,7 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ initiatives, onSelectInitiative, onCreateNew }) => {
-  const [viewType, setViewType] = useState<'list' | 'grid'>('list');
+  const [viewType, setViewType] = useState<'list' | 'grid'>('grid');
 
   return (
     <div className="min-h-screen bg-bgLight font-sans text-gray-800 pt-16">

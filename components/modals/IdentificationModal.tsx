@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, Plus } from 'lucide-react';
 import { IdentificationData } from '../../types';
 
@@ -18,7 +19,9 @@ const IdentificationModal: React.FC<IdentificationModalProps> = ({ isOpen, onClo
     code2: ""
   });
 
-  // Reset state when modal opens to simulate the "Start from scratch" flow (Image 5)
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset state when modal opens to simulate the "Start from scratch" flow
   useEffect(() => {
     if (isOpen) {
         setFormData({
@@ -34,22 +37,37 @@ const IdentificationModal: React.FC<IdentificationModalProps> = ({ isOpen, onClo
 
   if (!isOpen) return null;
 
-  // Simulates the upload action transitioning from Image 5 -> Image 6
-  const triggerSimulatedUpload = () => {
-    setFormData({
-        imagePreview: "https://images.unsplash.com/photo-1586773860418-d37222d8fce3?q=80&w=800&auto=format&fit=crop", // Building matching the context
-        description: "Lorem ipsum dolor sit amet. Est consequuntur totam eum corrupti ipsum ut quia nulla eos totam perferendis ab dolor nesciunt. 33 quae repellendus et asperiores esse eum voluptas fugit non quia.",
-        responsibleUnit: "SECPLA - Secretaría de Planificación Comunal",
-        inCharge: "María Luisa Gómez",
-        code1: "RENC_RES_2025",
-        code2: "014"
-    });
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({
+          ...prev,
+          imagePreview: reader.result as string
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm overflow-y-auto py-10">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 my-auto relative animate-fade-in-up">
         
+        {/* Hidden File Input */}
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          onChange={handleFileChange} 
+          accept="image/*" 
+          className="hidden" 
+        />
+
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-100">
           <h2 className="text-xl font-semibold text-gray-800">Identificación</h2>
@@ -66,7 +84,7 @@ const IdentificationModal: React.FC<IdentificationModalProps> = ({ isOpen, onClo
              {/* Image Upload Area */}
              <div className="space-y-2">
                 <div 
-                    onClick={triggerSimulatedUpload}
+                    onClick={!formData.imagePreview ? handleUploadClick : undefined}
                     className={`w-full aspect-video rounded-lg border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer overflow-hidden relative group transition-all
                     ${!formData.imagePreview ? 'bg-[linear-gradient(45deg,#f0f0f0_25%,transparent_25%,transparent_75%,#f0f0f0_75%,#f0f0f0),linear-gradient(45deg,#f0f0f0_25%,transparent_25%,transparent_75%,#f0f0f0_75%,#f0f0f0)] bg-[length:20px_20px] bg-[position:0_0,10px_10px]' : ''}`}
                 >
@@ -77,6 +95,7 @@ const IdentificationModal: React.FC<IdentificationModalProps> = ({ isOpen, onClo
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setFormData(prev => ({...prev, imagePreview: null}));
+                                    if (fileInputRef.current) fileInputRef.current.value = "";
                                 }}
                                 className="absolute top-2 right-2 bg-black/60 text-white p-1 rounded-full hover:bg-black/80 transition-colors"
                             >
@@ -86,7 +105,10 @@ const IdentificationModal: React.FC<IdentificationModalProps> = ({ isOpen, onClo
                     ) : (
                         <div className="flex flex-col items-center gap-3">
                             <Upload className="text-gray-400" size={32} />
-                            <button className="bg-gray-700 text-white px-4 py-2 rounded text-sm font-medium hover:bg-gray-800 transition-colors">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handleUploadClick(); }}
+                                className="bg-gray-700 text-white px-4 py-2 rounded text-sm font-medium hover:bg-gray-800 transition-colors"
+                            >
                                 Subir imagen
                             </button>
                         </div>

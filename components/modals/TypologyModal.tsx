@@ -23,6 +23,27 @@ const INVESTMENT_SCOPES = [
   "Multisectorial"
 ];
 
+const STRATEGIC_GUIDELINES = [
+  "Fortalecimiento Sector Salud Municipal",
+  "Fortalecimiento Sector Educación Municipal",
+  "Fortalecimiento Seguridad Ciudadana y Buena Convivencia",
+  "Desarrollo Social",
+  "Desarrollo y Protección del Medio Ambiente",
+  "Desarrollo Económico - Productivo",
+  "Fortalecimiento Sector Deportes, Cultura y Recreación",
+  "Fortalecimiento Participación Ciudadana",
+  "Desarrollo Urbano - Territorial",
+  "Modernización Institucional - Municipal"
+];
+
+const PROGRAMS = [
+  "Proyecto de Mejoramiento y Mantención de Calzadas, Veredas y Calles, incorporando la Accesibilidad Universal",
+  "Plan de Intervención, Construcción, Mejoramiento y Equipamiento de Espacios Públicos para el Desarrollo y la Seguridad de los Barrios (Áreas Verdes, Multicanchas, Espacios Comunitarios, Espacios Culturales, Recreativos, Cámaras de Vigilancia, entre otros.)",
+  "Programa Soporte Profesional Interdisciplinario para (la elaboración y postulación de) Proyectos Urbanos y Otras Iniciativas.",
+  "Proyecto Implementación (Desarrollo) de un Eje Cívico Comunal",
+  "Creación e Implementación Unidad Sistema de Información Geográfica (SIG) y Estadísticas Comunales."
+];
+
 const TypologyModal: React.FC<TypologyModalProps> = ({ isOpen, onClose, onSave }) => {
   const [data, setData] = useState<TypologyData>({
     projectType: "",
@@ -34,7 +55,6 @@ const TypologyModal: React.FC<TypologyModalProps> = ({ isOpen, onClose, onSave }
   const [isInvestmentDropdownOpen, setIsInvestmentDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -65,30 +85,24 @@ const TypologyModal: React.FC<TypologyModalProps> = ({ isOpen, onClose, onSave }
   };
 
   const handleSave = () => {
-    // If empty, provide some default for the demo flow, otherwise save user selection
-    if (!data.projectType && !data.investmentScope) {
-        onSave({
-            projectType: "Construcción/ Ejecución",
-            investmentScope: "Salud, Vivienda y Desarrollo Urbano",
-            strategicGuideline: "Promoción del bienestar social y la salud comunitaria",
-            program: "Programa de Mejoramiento de Barrios (PMB)"
-        });
-    } else {
-        onSave(data);
-    }
+    onSave(data);
   };
 
   const renderSelect = (label: string, key: keyof TypologyData, options: string[]) => (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-      <label className="text-gray-700 font-medium md:col-span-1">{label}</label>
+      <label className="text-gray-700 font-medium md:col-span-1 text-sm">{label}</label>
       <div className="relative md:col-span-2">
         <select
-          className="w-full appearance-none bg-white border border-gray-300 px-4 py-2.5 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent cursor-pointer pr-10"
+          className="w-full appearance-none bg-white border border-gray-300 px-4 py-2.5 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent cursor-pointer pr-10 text-sm"
           value={data[key]}
           onChange={(e) => handleChange(key, e.target.value)}
         >
           <option value="" disabled hidden>Seleccionar</option>
-          {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          {options.map(opt => (
+            <option key={opt} value={opt} className="text-sm">
+              {opt.length > 80 ? opt.substring(0, 80) + "..." : opt}
+            </option>
+          ))}
         </select>
         <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
       </div>
@@ -100,10 +114,10 @@ const TypologyModal: React.FC<TypologyModalProps> = ({ isOpen, onClose, onSave }
       
       return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-            <label className="text-gray-700 font-medium md:col-span-1">Ámbito de inversión</label>
+            <label className="text-gray-700 font-medium md:col-span-1 text-sm">Ámbito de inversión</label>
             <div className="relative md:col-span-2" ref={dropdownRef}>
                 <button
-                    className="w-full text-left bg-white border border-gray-300 px-4 py-2.5 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent cursor-pointer relative flex justify-between items-center"
+                    className="w-full text-left bg-white border border-gray-300 px-4 py-2.5 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent cursor-pointer relative flex justify-between items-center text-sm"
                     onClick={() => setIsInvestmentDropdownOpen(!isInvestmentDropdownOpen)}
                 >
                     <span className="truncate pr-4">
@@ -119,11 +133,11 @@ const TypologyModal: React.FC<TypologyModalProps> = ({ isOpen, onClose, onSave }
                             return (
                                 <div 
                                     key={scope}
-                                    className="px-4 py-2 hover:bg-gray-50 cursor-pointer flex items-center justify-between text-sm text-gray-700 select-none"
+                                    className="px-4 py-2 hover:bg-gray-50 cursor-pointer flex items-center justify-between text-xs text-gray-700 select-none"
                                     onClick={() => toggleInvestmentScope(scope)}
                                 >
                                     <span>{scope}</span>
-                                    {isSelected && <Check size={16} className="text-primary" />}
+                                    {isSelected && <Check size={14} className="text-primary" />}
                                 </div>
                             );
                         })}
@@ -146,7 +160,7 @@ const TypologyModal: React.FC<TypologyModalProps> = ({ isOpen, onClose, onSave }
         </div>
 
         {/* Body */}
-        <div className="p-8 space-y-6">
+        <div className="p-8 space-y-8">
           {renderSelect("Tipo de proyecto", "projectType", [
             "Estudio",
             "Diseño",
@@ -157,14 +171,9 @@ const TypologyModal: React.FC<TypologyModalProps> = ({ isOpen, onClose, onSave }
           
           {renderMultiSelect()}
 
-          {renderSelect("Lineamiento estratégico", "strategicGuideline", [
-            "Fortalecer la planificación local y el ordenamiento territorial",
-            "Promoción del bienestar social y la salud comunitaria"
-          ])}
-          {renderSelect("Programa", "program", [
-            "Programa de Mejoramiento de Barrios (PMB)",
-            "Programa de Pequeñas Localidades (PPL)"
-          ])}
+          {renderSelect("Lineamiento estratégico", "strategicGuideline", STRATEGIC_GUIDELINES)}
+          
+          {renderSelect("Programa", "program", PROGRAMS)}
         </div>
 
         {/* Footer */}

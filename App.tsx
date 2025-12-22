@@ -9,7 +9,9 @@ import TypologyModal from './components/modals/TypologyModal';
 import InvestmentModal from './components/modals/InvestmentModal';
 import ExpensesModal from './components/modals/ExpensesModal';
 import ExecutionLicitacionModal from './components/modals/ExecutionLicitacionModal';
+import ExecutionProgressModal from './components/modals/ExecutionProgressModal';
 import ImpactIndicatorsModal from './components/modals/ImpactIndicatorsModal';
+import FulfillmentModal from './components/modals/FulfillmentModal';
 import ProblemModal from './components/modals/ProblemModal';
 import BeneficiariesModal from './components/modals/BeneficiariesModal';
 import CoverageModal from './components/modals/CoverageModal';
@@ -17,24 +19,35 @@ import ExpectedResultsModal from './components/modals/ExpectedResultsModal';
 import ShareModal from './components/modals/ShareModal';
 import DocumentsModal from './components/modals/DocumentsModal';
 import ParticipationModal from './components/modals/ParticipationModal';
-import { Pencil, Plus, Menu, ChevronDown, ArrowUpRight, Share2, Link as LinkIcon, Download, Clock, User, Send, FileText, Calendar as CalendarIcon, Trash2, Edit2, LayoutDashboard, Folder, UserCircle, LogOut, File, Users, Paperclip, MessageSquare } from 'lucide-react';
-import { InitiativeState, IdentificationData, InterventionData, TypologyData, InvestmentData, ExpenseItem, LogEntry, CalendarEvent, LicitacionData, ImpactIndicator, FormulationData, BeneficiariesData, CoverageData, ExpectedResult, DocumentItem, ParticipationEntry } from './types';
+import { Pencil, Plus, Menu, ChevronDown, ArrowUpRight, Share2, Link as LinkIcon, Download, Clock, User, Send, FileText, Calendar as CalendarIcon, Trash2, Edit2, LayoutDashboard, Folder, UserCircle, LogOut, File, Users, Paperclip, MessageSquare, Target, CheckCircle2, AlertTriangle, HelpCircle, MoreHorizontal, RotateCcw, ExternalLink, Search } from 'lucide-react';
+import { InitiativeState, IdentificationData, InterventionData, TypologyData, InvestmentData, ExpenseItem, LogEntry, CalendarEvent, LicitacionData, ImpactIndicator, FormulationData, BeneficiariesData, CoverageData, ExpectedResult, DocumentItem, ParticipationEntry, FulfillmentStatus, ExecutionProgressRow } from './types';
 import { jsPDF } from "jspdf";
 
 const App: React.FC = () => {
-  // Navigation State - Changed default to 'dashboard'
+  // Navigation State
   const [viewMode, setViewMode] = useState<'dashboard' | 'detail' | 'panel0'>('dashboard'); 
   const [activeView, setActiveView] = useState('Identificación');
+  const [activeLicitacionIndex, setActiveLicitacionIndex] = useState(0);
+  const [activeInvestmentIndex, setActiveInvestmentIndex] = useState(0);
+  const [activeCardMenu, setActiveCardMenu] = useState<string | null>(null);
+  const [activeNucleusId, setActiveNucleusId] = useState<string>('n1');
   
   // Header Menu State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const cardMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close menu when clicking outside
+  // Helper for empty states
+  const emptyText = <span className="text-gray-400 italic font-normal">sin información</span>;
+
+  // Close menus when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setIsMenuOpen(false);
+      }
+      if (cardMenuRef.current && !cardMenuRef.current.contains(event.target as Node)) {
+        setActiveCardMenu(null);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -78,17 +91,22 @@ const App: React.FC = () => {
           program: "PMB"
       },
       intervention: null,
-      investment: {
-        type: 'Propio',
-        department: 'Obras',
-        inscriptionDate: '10-01-2025',
-        documents: []
-      },
+      investments: [
+        {
+          type: 'Propio',
+          department: 'Obras',
+          inscriptionDate: '10-01-2025',
+          documents: []
+        }
+      ],
       execution: {
-        licitacion: null,
+        licitaciones: [
+            { type: "", detail: "", status: "", link: "", dates: [], executor: "", resolution: "", amount: "" }
+        ], 
+        progress: null,
         documents: []
       },
-      participation: [], // Initial empty array for participation
+      participation: [], 
       expenses: [],
       impactIndicators: [],
       formulation: {
@@ -115,6 +133,9 @@ const App: React.FC = () => {
   // Temporary storage for participation editing
   const [activeParticipationEntry, setActiveParticipationEntry] = useState<ParticipationEntry | null>(null);
 
+  // Tracking for fulfillment modal
+  const [activeResultToTrack, setActiveResultToTrack] = useState<ExpectedResult | null>(null);
+
   const [modals, setModals] = useState({
     name: false,
     identification: false,
@@ -123,17 +144,15 @@ const App: React.FC = () => {
     investment: false,
     expenses: false,
     executionLicitacion: false,
+    executionProgress: false,
     impactIndicators: false,
-    // Formulation modals
+    fulfillment: false, 
     problem: false,
     beneficiaries: false,
     coverage: false,
     expectedResults: false,
-    // Share modal
     share: false,
-    // Document modal
     documents: false,
-    // Participation modal
     participation: false
   });
   
@@ -155,6 +174,75 @@ const App: React.FC = () => {
   const [showEventForm, setShowEventForm] = useState(false);
   const [newEventData, setNewEventData] = useState({ title: '', startDate: '', endDate: '' });
 
+  // Helper to detect if a licitacion is empty
+  const isLicitacionEmpty = (lic: LicitacionData | undefined) => {
+    if (!lic) return true;
+    return !lic.type && !lic.detail && !lic.status && !lic.link && lic.dates.length === 0 && !lic.executor && !lic.amount;
+  };
+
+  // --- Restore Action Handlers ---
+  const handleRestoreCard = (cardId: string) => {
+    setActiveCardMenu(null);
+    updateInitiative(prev => {
+        let newState = { ...prev };
+        let logAction = "";
+
+        switch (cardId) {
+            case 'identification':
+                newState.identification = null;
+                logAction = "Información de identificación restaurada";
+                break;
+            case 'intervention':
+                newState.intervention = null;
+                logAction = "Área de intervención restaurada";
+                break;
+            case 'typology':
+                newState.typology = null;
+                logAction = "Tipologías restauradas";
+                break;
+            case 'calendar':
+                newState.calendarEvents = [];
+                logAction = "Calendario de fechas restaurado";
+                break;
+            case 'problem':
+                newState.formulation.problem = "";
+                logAction = "Problema o brecha restaurado";
+                break;
+            case 'beneficiaries':
+                newState.formulation.beneficiaries = null;
+                logAction = "Beneficiarios restaurados";
+                break;
+            case 'coverage':
+                newState.formulation.coverage = null;
+                logAction = "Cobertura restaurada";
+                break;
+            case 'expectedResults':
+                newState.formulation.expectedResults = [];
+                logAction = "Resultados esperados restaurados";
+                break;
+            case 'investment':
+                const newInvestments = [...prev.investments];
+                newInvestments[activeInvestmentIndex] = { type: '', department: '', inscriptionDate: '', documents: [] };
+                newState.investments = newInvestments;
+                logAction = `Financiamiento ${activeInvestmentIndex + 1} restaurado`;
+                break;
+            case 'licitacion':
+                if (newState.execution?.licitaciones) {
+                    const newLics = [...newState.execution.licitaciones];
+                    newLics[activeLicitacionIndex] = { type: "", detail: "", status: "", link: "", dates: [], executor: "", resolution: "", amount: "" };
+                    newState.execution = { ...newState.execution, licitaciones: newLics };
+                }
+                logAction = `Licitación ${activeLicitacionIndex + 1} restaurada`;
+                break;
+        }
+
+        return {
+            ...newState,
+            logs: [createLog(logAction), ...prev.logs]
+        };
+    });
+  };
+
   // Navigation Logic
   const handleBackToDashboard = () => {
     setViewMode('dashboard');
@@ -166,6 +254,8 @@ const App: React.FC = () => {
         setInitiative(selected);
         setViewMode('detail');
         setActiveView('Identificación');
+        setActiveLicitacionIndex(0);
+        setActiveInvestmentIndex(0);
     }
   };
 
@@ -177,16 +267,14 @@ const App: React.FC = () => {
       } else if (target === 'dashboard') {
           setViewMode('dashboard');
       } else if (target === 'logout') {
-          // Placeholder for logout
           console.log("Logout clicked");
       }
   };
 
   // Flow Step 1: Create New Initiative
   const handleCreateNew = () => {
-      // Prepare a clean state for the new initiative, but don't add to list yet
       const newInit: InitiativeState = {
-          id: "", // Will be assigned on save
+          id: "", 
           name: "Nueva Iniciativa",
           status: "Borrador",
           stage: "",
@@ -194,8 +282,14 @@ const App: React.FC = () => {
           identification: null,
           intervention: null,
           typology: null,
-          investment: null,
-          execution: null,
+          investments: [],
+          execution: {
+            licitaciones: [
+                { type: "", detail: "", status: "", link: "", dates: [], executor: "", resolution: "", amount: "" }
+            ],
+            progress: null,
+            documents: []
+          },
           participation: [],
           expenses: [],
           impactIndicators: [],
@@ -219,9 +313,6 @@ const App: React.FC = () => {
       
       setInitiative(newInit);
       setActiveView('Identificación');
-      // No view mode change yet, the modal opens on top of dashboard essentially, 
-      // but to keep flow consistent we might want to switch or just show modal.
-      // Current flow requests: Create -> Open Name Modal -> Save -> Show Detail.
       openNameModal();
   };
 
@@ -234,20 +325,17 @@ const App: React.FC = () => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const contentWidth = pageWidth - (margin * 2);
 
-    // Title
     doc.setFontSize(18);
-    doc.setTextColor(49, 52, 139); // primary color
+    doc.setTextColor(49, 52, 139); 
     doc.text("Ficha de Iniciativa", margin, yPos);
     yPos += 12;
 
-    // Initiative Name
     doc.setFontSize(14);
     doc.setTextColor(0, 0, 0);
     const splitTitle = doc.splitTextToSize(initiative.name, contentWidth);
     doc.text(splitTitle, margin, yPos);
     yPos += (splitTitle.length * lineHeight) + 5;
 
-    // General Info
     doc.setFontSize(10);
     doc.setTextColor(100, 100, 100);
     doc.text(`Estado: ${initiative.status}  |  Prioridad: ${initiative.priority || 'N/A'}`, margin, yPos);
@@ -258,20 +346,17 @@ const App: React.FC = () => {
     }
     yPos += lineHeight;
 
-    // Helper to add section
     const addSection = (title: string, content: string[][]) => {
        if (yPos > 260) {
          doc.addPage();
          yPos = 20;
        }
-       // Section Header
        doc.setFontSize(12);
        doc.setTextColor(49, 52, 139);
        doc.setFont(undefined, 'bold');
        doc.text(title, margin, yPos);
        yPos += lineHeight;
        
-       // Section Content
        doc.setFontSize(10);
        doc.setTextColor(60, 60, 60);
        doc.setFont(undefined, 'normal');
@@ -282,20 +367,15 @@ const App: React.FC = () => {
                 doc.addPage();
                 yPos = 20;
             }
-            const labelText = `${label}: `;
-            const valueText = value;
-            
-            // Simple check to align if needed, usually direct printing is fine
-            const fullText = `${labelText}${valueText}`;
+            const fullText = `${label}: ${value}`;
             const splitText = doc.splitTextToSize(fullText, contentWidth);
             doc.text(splitText, margin, yPos);
             yPos += (splitText.length * 6);
           }
        });
-       yPos += 4; // Spacing after section
+       yPos += 4; 
     };
 
-    // Identificación
     if (initiative.identification) {
         addSection("Identificación", [
             ["Unidad Responsable", initiative.identification.responsibleUnit],
@@ -306,7 +386,6 @@ const App: React.FC = () => {
         ]);
     }
 
-    // Intervención
     if (initiative.intervention) {
         addSection("Intervención", [
             ["Comuna", initiative.intervention.comuna],
@@ -314,9 +393,8 @@ const App: React.FC = () => {
         ]);
     }
 
-    // Tipología
     if (initiative.typology) {
-        addSection("Tipología", [
+        addSection("Typología", [
              ["Tipo de proyecto", initiative.typology.projectType],
              ["Ámbito de inversión", initiative.typology.investmentScope],
              ["Lineamiento estratégico", initiative.typology.strategicGuideline],
@@ -324,15 +402,12 @@ const App: React.FC = () => {
         ]);
     }
 
-    // Formulación
     addSection("Formulación", [
         ["Problema", initiative.formulation.problem],
         ["Beneficiarios Directos", initiative.formulation.beneficiaries?.direct || ""],
-        ["Beneficiarios Indirectos", initiative.formulation.beneficiaries?.indirect || ""],
-        ["Cobertura (Link)", initiative.formulation.coverage?.link || ""]
+        ["Beneficiarios Indirectos", initiative.formulation.beneficiaries?.indirect || ""]
     ]);
     
-    // Resultados esperados
     if (initiative.formulation.expectedResults.length > 0) {
         if (yPos > 260) { doc.addPage(); yPos = 20; }
         doc.setFontSize(12);
@@ -352,24 +427,23 @@ const App: React.FC = () => {
         yPos += 4;
     }
 
-    // Investment
-    if (initiative.investment) {
-         const inv = initiative.investment;
-         const data = [
-             ["Tipo de financiamiento", inv.type],
-             ...(inv.type === 'Propio' ? [
-                 ["Departamento", inv.department || ""],
-                 ["Fecha inscripción", inv.inscriptionDate || ""]
-             ] : [
-                 ["Financista", inv.financier || ""],
-                 ["Fondo", inv.fund || ""],
-                 ["Estado Postulación", inv.postulationState || ""]
-             ])
-         ];
-         addSection("Plan de Inversión", data);
+    if (initiative.investments.length > 0) {
+        initiative.investments.forEach((inv, i) => {
+            const data = [
+                ["Tipo de financiamiento", inv.type],
+                ...(inv.type === 'Propio' ? [
+                    ["Departamento", inv.department || ""],
+                    ["Fecha inscripción", inv.inscriptionDate || ""]
+                ] : [
+                    ["Financista", inv.financier || ""],
+                    ["Fondo", inv.fund || ""],
+                    ["Estado Postulación", inv.postulationState || ""]
+                ])
+            ];
+            addSection(`Plan de Inversión - Financiamiento ${i+1}`, data);
+        });
     }
 
-    // Expenses
     if (initiative.expenses.length > 0) {
         if (yPos > 260) { doc.addPage(); yPos = 20; }
         doc.setFontSize(12);
@@ -390,19 +464,18 @@ const App: React.FC = () => {
         yPos += 4;
     }
     
-    // Execution
-    if (initiative.execution?.licitacion) {
-        const lic = initiative.execution.licitacion;
-         addSection("Ejecución - Licitación", [
-             ["Tipo", lic.type],
-             ["Detalle", lic.detail],
-             ["Estado", lic.status],
-             ["Ejecutor", lic.executor],
-             ["Monto", lic.amount]
-         ]);
+    if (initiative.execution?.licitaciones && initiative.execution.licitaciones.length > 0) {
+        initiative.execution.licitaciones.forEach((lic, i) => {
+            addSection(`Ejecución - Licitación ${i+1}`, [
+                ["Tipo", lic.type],
+                ["Detalle", lic.detail],
+                ["Estado", lic.status],
+                ["Ejecutor", lic.executor],
+                ["Monto", lic.amount]
+            ]);
+        });
     }
     
-    // Impact Indicators
     if (initiative.impactIndicators.length > 0) {
         if (yPos > 260) { doc.addPage(); yPos = 20; }
         doc.setFontSize(12);
@@ -421,7 +494,6 @@ const App: React.FC = () => {
         });
     }
 
-    // Save
     doc.save("ficha-iniciativa.pdf");
   };
 
@@ -430,22 +502,16 @@ const App: React.FC = () => {
   const closeNameModal = () => setModals(prev => ({ ...prev, name: false }));
   
   const saveName = (newName: string) => {
-    // 1. Create the final new initiative object with an ID
     const newInitiative: InitiativeState = { 
         ...initiative, 
-        id: Date.now().toString(), // Generate ID here
+        id: Date.now().toString(), 
         name: newName,
         lastUpdate: new Date().toLocaleDateString('es-CL'),
         logs: [createLog('Nombre actualizado'), ...initiative.logs] 
     };
 
-    // 2. Add it to the main list
     setInitiativesList(prev => [newInitiative, ...prev]);
-
-    // 3. Set it as the current active initiative
     setInitiative(newInitiative);
-
-    // 4. Proceed to detail view
     setViewMode('detail'); 
     setActiveView('Identificación'); 
     closeNameModal();
@@ -454,7 +520,6 @@ const App: React.FC = () => {
   const updateInitiative = (updater: (prev: InitiativeState) => InitiativeState) => {
       setInitiative(prev => {
           const updated = updater(prev);
-          // Also update the list item so dashboard reflects changes immediately if we go back
           setInitiativesList(currentList => 
              currentList.map(item => item.id === updated.id ? updated : item)
           );
@@ -502,12 +567,46 @@ const App: React.FC = () => {
   const closeInvestmentModal = () => setModals(prev => ({ ...prev, investment: false }));
 
   const saveInvestment = (data: InvestmentData) => {
-    updateInitiative(prev => ({ 
-        ...prev, 
-        investment: { ...prev.investment, ...data }, // merge to preserve documents
-        logs: [createLog('Plan de inversión actualizado'), ...prev.logs]
-    }));
+    updateInitiative(prev => {
+        const currentInvestments = [...(prev.investments || [])];
+        if (activeInvestmentIndex < currentInvestments.length) {
+            currentInvestments[activeInvestmentIndex] = data;
+        } else {
+            currentInvestments.push(data);
+        }
+        
+        return {
+            ...prev,
+            investments: currentInvestments,
+            logs: [createLog(`Plan de inversión ${activeInvestmentIndex + 1} actualizado`), ...prev.logs]
+        };
+    });
     closeInvestmentModal();
+  };
+
+  const handleAddInvestment = () => {
+    updateInitiative(prev => {
+        const currentInvestments = prev.investments || [];
+        const emptyInvestment: InvestmentData = {
+            type: '',
+            department: '',
+            inscriptionDate: '',
+            postulationState: '',
+            financier: '',
+            fund: '',
+            responsible: '',
+            postulationDate: '',
+            resultDate: '',
+            documents: []
+        };
+        const newList = [...currentInvestments, emptyInvestment];
+        setActiveInvestmentIndex(newList.length - 1);
+        return {
+            ...prev,
+            investments: newList,
+            logs: [createLog('Nueva fuente de financiamiento añadida'), ...prev.logs]
+        };
+    });
   };
 
   const openExpensesModal = () => setModals(prev => ({ ...prev, expenses: true }));
@@ -526,12 +625,56 @@ const App: React.FC = () => {
   const closeExecutionLicitacionModal = () => setModals(prev => ({ ...prev, executionLicitacion: false }));
 
   const saveExecutionLicitacion = (data: LicitacionData) => {
+    updateInitiative(prev => {
+        const currentLicitaciones = [...(prev.execution?.licitaciones || [])];
+        if (activeLicitacionIndex < currentLicitaciones.length) {
+            currentLicitaciones[activeLicitacionIndex] = data;
+        } else {
+            currentLicitaciones.push(data);
+        }
+        
+        return {
+            ...prev,
+            execution: { ...prev.execution, licitaciones: currentLicitaciones } as any,
+            logs: [createLog(`Datos de licitación ${activeLicitacionIndex + 1} actualizados`), ...prev.logs]
+        };
+    });
+    closeExecutionLicitacionModal();
+  };
+
+  const handleAddLicitacion = () => {
+    updateInitiative(prev => {
+        const currentLicitaciones = prev.execution?.licitaciones || [];
+        const emptyLicitacion: LicitacionData = {
+            type: "",
+            detail: "",
+            status: "",
+            link: "",
+            dates: [],
+            executor: "",
+            resolution: "",
+            amount: ""
+        };
+        const newList = [...currentLicitaciones, emptyLicitacion];
+        setActiveLicitacionIndex(newList.length - 1);
+        return {
+            ...prev,
+            execution: { ...prev.execution, licitaciones: newList } as any,
+            logs: [createLog('Nueva licitación añadida'), ...prev.logs]
+        };
+    });
+  };
+
+  const openExecutionProgressModal = () => setModals(prev => ({ ...prev, executionProgress: true }));
+  const closeExecutionProgressModal = () => setModals(prev => ({ ...prev, executionProgress: false }));
+
+  const saveExecutionProgress = (data: ExecutionProgressRow[]) => {
     updateInitiative(prev => ({
         ...prev,
-        execution: { ...prev.execution, licitacion: data },
-        logs: [createLog('Datos de licitación actualizados'), ...prev.logs]
+        execution: { ...prev.execution, progress: data } as any,
+        logs: [createLog('Datos de ejecución actualizados'), ...prev.logs]
     }));
-    closeExecutionLicitacionModal();
+    closeExecutionProgressModal();
   };
 
   const openImpactIndicatorsModal = () => setModals(prev => ({ ...prev, impactIndicators: true }));
@@ -546,7 +689,26 @@ const App: React.FC = () => {
     closeImpactIndicatorsModal();
   };
 
-  // --- Formulation Modal Handlers ---
+  const openFulfillmentModal = (result: ExpectedResult) => {
+    setActiveResultToTrack(result);
+    setModals(prev => ({ ...prev, fulfillment: true }));
+  };
+
+  const saveFulfillment = (resultId: string, status: FulfillmentStatus, comment: string) => {
+    updateInitiative(prev => {
+        const updatedResults = prev.formulation.expectedResults.map(r => 
+            r.id === resultId ? { ...r, status, fulfillmentComment: comment } : r
+        );
+        return {
+            ...prev,
+            formulation: { ...prev.formulation, expectedResults: updatedResults },
+            logs: [createLog(`Actualización de cumplimiento: ${status}`), ...prev.logs]
+        };
+    });
+    setModals(prev => ({ ...prev, fulfillment: false }));
+    setActiveResultToTrack(null);
+  };
+
   const saveProblem = (problem: string) => {
     updateInitiative(prev => ({
         ...prev,
@@ -583,11 +745,9 @@ const App: React.FC = () => {
     setModals(prev => ({ ...prev, expectedResults: false }));
   };
 
-  // --- Share Modal Handlers ---
   const openShareModal = () => setModals(prev => ({ ...prev, share: true }));
   const closeShareModal = () => setModals(prev => ({ ...prev, share: false }));
 
-  // --- Documents Modal Handlers ---
   const openDocumentsModal = (section: 'investment' | 'execution' | 'participation') => {
       setActiveDocumentSection(section);
       setModals(prev => ({ ...prev, documents: true }));
@@ -602,14 +762,17 @@ const App: React.FC = () => {
           const newLogs = [createLog(`Documento añadido: ${doc.name}`), ...prev.logs];
           
           if (activeDocumentSection === 'investment') {
-              const currentDocs = prev.investment?.documents || [];
+              const currentInvestments = [...prev.investments];
+              if (currentInvestments[activeInvestmentIndex]) {
+                  const currentDocs = currentInvestments[activeInvestmentIndex].documents || [];
+                  currentInvestments[activeInvestmentIndex] = {
+                      ...currentInvestments[activeInvestmentIndex],
+                      documents: [...currentDocs, doc]
+                  };
+              }
               return {
                   ...prev,
-                  investment: {
-                      ...prev.investment,
-                      type: prev.investment?.type || 'Propio',
-                      documents: [...currentDocs, doc]
-                  },
+                  investments: currentInvestments,
                   logs: newLogs
               };
           } else if (activeDocumentSection === 'execution') {
@@ -617,20 +780,19 @@ const App: React.FC = () => {
                return {
                   ...prev,
                   execution: {
-                      licitacion: prev.execution?.licitacion || null,
+                      licitaciones: prev.execution?.licitaciones || [],
+                      progress: prev.execution?.progress || null,
                       documents: [...currentDocs, doc]
                   },
                   logs: newLogs
                };
           } else if (activeDocumentSection === 'participation') {
-              // Special handling for participation: update the temporary state for the modal
               if (activeParticipationEntry) {
                   setActiveParticipationEntry({
                       ...activeParticipationEntry,
                       documents: [...activeParticipationEntry.documents, doc]
                   });
               }
-              // We don't update main initiative state yet, waiting for Modal Save
               return prev;
           }
           return prev;
@@ -638,7 +800,6 @@ const App: React.FC = () => {
       closeDocumentsModal();
   };
 
-  // --- Participation Modal Handlers ---
   const openParticipationModal = (entry?: ParticipationEntry) => {
       if (entry) {
           setActiveParticipationEntry(entry);
@@ -734,7 +895,6 @@ const App: React.FC = () => {
     setNewLogText("");
   };
 
-  // Calendar Helpers
   const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
   const daysOfWeek = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
   const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
@@ -768,11 +928,46 @@ const App: React.FC = () => {
       return new Intl.DateTimeFormat('es-CL', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
   };
 
-  // --- Main Layout ---
+  const getFulfillmentBadge = (status?: FulfillmentStatus) => {
+    switch (status) {
+        case 'achieved': return <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit"><CheckCircle2 size={10}/> Alcanzada</span>;
+        case 'not_achieved': return <span className="bg-red-100 text-red-700 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit"><AlertTriangle size={10}/> No alcanzada</span>;
+        case 'in_progress': return <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit"><Clock size={10}/> En proceso</span>;
+        default: return <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit"><HelpCircle size={10}/> Pendiente</span>;
+    }
+  };
+
+  // --- Card Menu Dropdown Component ---
+  const renderCardMenu = (cardId: string) => (
+    <div className="relative inline-block" ref={cardId === activeCardMenu ? cardMenuRef : null}>
+        <button 
+            onClick={(e) => {
+                e.stopPropagation();
+                setActiveCardMenu(activeCardMenu === cardId ? null : cardId);
+            }}
+            className="text-gray-400 hover:text-primary transition-colors p-1"
+        >
+            <MoreHorizontal size={18} />
+        </button>
+        {activeCardMenu === cardId && (
+            <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-gray-200 rounded-md shadow-lg z-[40] py-1 animate-in fade-in zoom-in-95 duration-100">
+                <button 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleRestoreCard(cardId);
+                    }}
+                    className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"
+                >
+                    <RotateCcw size={12} /> Restaurar
+                </button>
+            </div>
+        )}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-bgLight font-sans text-gray-800">
       
-      {/* Global Header */}
       <header className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 z-50 shadow-sm">
         <div className="flex items-center gap-4" ref={menuRef}>
           <div className="relative">
@@ -783,7 +978,6 @@ const App: React.FC = () => {
                   <Menu size={24} />
               </button>
               
-              {/* Hamburger Menu Dropdown */}
               {isMenuOpen && (
                   <div className="absolute top-10 left-0 w-64 bg-white rounded-lg shadow-xl border border-gray-100 py-2 animate-in fade-in slide-in-from-top-2 duration-200 z-[60]">
                       <div className="px-2 space-y-1">
@@ -831,15 +1025,12 @@ const App: React.FC = () => {
         </div>
       </header>
       
-      {/* --- View Controller --- */}
       <div className="pt-16 min-h-screen">
           
-          {/* 1. Panel Cero View */}
           {viewMode === 'panel0' && (
               <PanelCero onNavigateToInitiatives={() => setViewMode('dashboard')} />
           )}
 
-          {/* 2. Dashboard View */}
           {viewMode === 'dashboard' && (
               <Dashboard 
                 initiatives={initiativesList}
@@ -848,7 +1039,6 @@ const App: React.FC = () => {
               />
           )}
 
-          {/* 3. Detail View */}
           {viewMode === 'detail' && (
              <div className="flex">
                 <Sidebar 
@@ -861,7 +1051,6 @@ const App: React.FC = () => {
                 <main className="flex-1 md:ml-64 transition-all">
                   <div className="p-8 max-w-7xl mx-auto">
                     
-                    {/* Breadcrumb / Title Area */}
                     <div className="mb-8">
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-2">
                         <div className="flex items-center gap-3 group">
@@ -877,8 +1066,7 @@ const App: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Action buttons */}
-                        {(activeView === 'Formulación' || activeView === 'Identificación' || activeView === 'Calendario' || activeView === 'Plan de inversión' || activeView === 'Participación ciudadana') && (
+                        {(activeView === 'Formulación' || activeView === 'Identificación' || activeView === 'Calendario' || activeView === 'Plan de inversión' || activeView === 'Participación ciudadana' || activeView === 'Indicadores de impacto') && (
                           <div className="flex items-center gap-3">
                               <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-1 rounded">
                                   Última actualización {formatDate(initiative.logs[0]?.timestamp || new Date())}
@@ -899,13 +1087,11 @@ const App: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Filter Bar */}
                       <div className="bg-white p-2 rounded-lg border border-gray-200 flex flex-wrap gap-4 items-center shadow-sm relative z-20">
                         <div className="flex-1 border-r border-gray-100 h-8 hidden lg:block"></div>
                         <div className="flex-1 border-r border-gray-100 h-8 hidden lg:block"></div>
                         <div className="flex-1 h-8 hidden lg:block"></div>
                         
-                        {/* Status Dropdown */}
                         <div className="flex items-center gap-2 px-4 relative">
                             <span className="text-sm font-medium text-gray-600">Estado</span>
                             <div 
@@ -937,7 +1123,6 @@ const App: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Stage Dropdown (Conditional) */}
                         {initiative.status === 'Activo' && (
                             <div className="flex items-center gap-2 px-4 border-l border-gray-200 relative animate-in fade-in slide-in-from-left-2 duration-300">
                                 <div 
@@ -970,7 +1155,6 @@ const App: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Priority Dropdown */}
                         <div className="flex items-center gap-2 px-4 border-l border-gray-200 relative">
                             <span className="text-sm font-medium text-gray-600">Prioridad</span>
                             <div 
@@ -1004,11 +1188,8 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* View Content (Details) */}
                     {activeView === 'Identificación' && (
-                        /* ... Identificación cards code kept same ... */
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Card 1: Identificación */}
                             <div 
                             className={`bg-white rounded-lg border shadow-sm transition-all duration-300 flex flex-col ${initiative.identification ? 'border-gray-200' : 'border-gray-200 hover:border-primary/50 cursor-pointer'}`}
                             style={{ minHeight: '320px' }}
@@ -1017,7 +1198,10 @@ const App: React.FC = () => {
                             <div className="p-4 border-b border-gray-50 flex justify-between items-center">
                                 <h3 className="font-semibold text-gray-700">Identificación</h3>
                                 {initiative.identification && (
-                                    <button onClick={openIdModal} className="text-gray-400 hover:text-primary"><Pencil size={14}/></button>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={openIdModal} className="text-gray-400 hover:text-primary transition-colors"><Pencil size={14}/></button>
+                                        {renderCardMenu('identification')}
+                                    </div>
                                 )}
                             </div>
                             
@@ -1036,10 +1220,10 @@ const App: React.FC = () => {
                                         )}
                                         <div className="space-y-1">
                                             <p className="text-base font-semibold text-gray-700">
-                                                Código 1: <span className="font-normal text-gray-600">{initiative.identification.code1}</span>
+                                                Código 1: <span className="font-normal text-gray-600">{initiative.identification.code1 || emptyText}</span>
                                             </p>
                                             <p className="text-base font-semibold text-gray-700">
-                                                Código 2: <span className="font-normal text-gray-600">{initiative.identification.code2}</span>
+                                                Código 2: <span className="font-normal text-gray-600">{initiative.identification.code2 || emptyText}</span>
                                             </p>
                                         </div>
                                     </div>
@@ -1047,17 +1231,17 @@ const App: React.FC = () => {
                                         <div>
                                             <h4 className="text-xl font-semibold text-gray-700 mb-3">Descripción</h4>
                                             <p className="text-gray-600 text-base leading-relaxed">
-                                                {initiative.identification.description}
+                                                {initiative.identification.description || emptyText}
                                             </p>
                                         </div>
                                         <div>
                                             <h4 className="text-xl font-semibold text-gray-700 mb-3">Responsables</h4>
                                             <div className="space-y-1">
                                                 <p className="text-gray-600 text-base">
-                                                    {initiative.identification.responsibleUnit}
+                                                    {initiative.identification.responsibleUnit || emptyText}
                                                 </p>
                                                 <p className="text-gray-600 text-base">
-                                                    {initiative.identification.inCharge}
+                                                    {initiative.identification.inCharge || emptyText}
                                                 </p>
                                             </div>
                                         </div>
@@ -1072,21 +1256,23 @@ const App: React.FC = () => {
                             </div>
                             </div>
 
-                            {/* Card 2: Área de intervención */}
                             <div 
                             className={`bg-white rounded-lg border shadow-sm transition-all duration-300 flex flex-col ${initiative.intervention ? 'border-gray-200' : 'border-gray-200 hover:border-primary/50 cursor-pointer'}`}
                             style={{ minHeight: '320px' }}
-                            onClick={openInterventionModal}
+                            onClick={!initiative.intervention ? openInterventionModal : undefined}
                             >
                                 <div className="p-4 border-b border-gray-50 flex justify-between items-center">
                                     <div className="flex flex-col">
                                         <h3 className="font-semibold text-gray-700">Área de intervención</h3>
                                         {initiative.intervention && (
-                                            <p className="text-gray-600 text-sm mt-1">{initiative.intervention.sector}</p>
+                                            <p className="text-gray-600 text-sm mt-1">{initiative.intervention.sector || emptyText}</p>
                                         )}
                                     </div>
                                     {initiative.intervention && (
-                                        <button className="text-gray-400 hover:text-primary"><Pencil size={14}/></button>
+                                        <div className="flex items-center gap-2">
+                                            <button onClick={openInterventionModal} className="text-gray-400 hover:text-primary transition-colors"><Pencil size={14}/></button>
+                                            {renderCardMenu('intervention')}
+                                        </div>
                                     )}
                                 </div>
                                 
@@ -1111,16 +1297,18 @@ const App: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Card 3: Tipologías */}
                             <div 
                                 className={`bg-white rounded-lg border shadow-sm transition-all duration-300 flex flex-col ${initiative.typology ? 'border-gray-200' : 'border-gray-200 hover:border-primary/50 cursor-pointer'}`}
                                 style={{ minHeight: '320px' }}
-                                onClick={openTypologyModal}
+                                onClick={!initiative.typology ? openTypologyModal : undefined}
                             >
                                 <div className="p-4 border-b border-gray-50 flex justify-between items-center">
                                     <h3 className="font-semibold text-gray-700">Tipologías</h3>
                                     {initiative.typology && (
-                                        <button className="text-gray-400 hover:text-primary"><Pencil size={14}/></button>
+                                        <div className="flex items-center gap-2">
+                                            <button onClick={openTypologyModal} className="text-gray-400 hover:text-primary transition-colors"><Pencil size={14}/></button>
+                                            {renderCardMenu('typology')}
+                                        </div>
                                     )}
                                 </div>
                                 <div className="flex-1 flex flex-col justify-center p-6">
@@ -1129,7 +1317,7 @@ const App: React.FC = () => {
                                             <div>
                                                 <p className="text-sm font-bold text-gray-700 mb-2">Tipo de proyecto</p>
                                                 <span className="inline-block px-3 py-1 rounded-full border border-primary text-primary text-xs font-medium bg-white">
-                                                    {initiative.typology.projectType || "-"}
+                                                    {initiative.typology.projectType || emptyText}
                                                 </span>
                                             </div>
                                             <div>
@@ -1141,20 +1329,20 @@ const App: React.FC = () => {
                                                                 {scope.trim()}
                                                             </span>
                                                         )) 
-                                                        : <span>-</span>
+                                                        : emptyText
                                                     }
                                                 </div>
                                             </div>
                                             <div>
                                                 <p className="text-sm font-bold text-gray-700 mb-2">Lineamiento estratégico</p>
                                                 <span className="inline-block px-3 py-1 rounded-full border border-primary text-primary text-xs font-medium bg-white">
-                                                    {initiative.typology.strategicGuideline || "-"}
+                                                    {initiative.typology.strategicGuideline || emptyText}
                                                 </span>
                                             </div>
                                             <div>
                                                 <p className="text-sm font-bold text-gray-700 mb-2">Programa</p>
                                                 <span className="inline-block px-3 py-1 rounded-full border border-primary text-primary text-xs font-medium bg-white">
-                                                    {initiative.typology.program || "-"}
+                                                    {initiative.typology.program || emptyText}
                                                 </span>
                                             </div>
                                         </div>
@@ -1167,22 +1355,24 @@ const App: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Card 4: Fechas Clave */}
                             <div 
                                 onClick={() => handleNavigate('Calendario')}
                                 className="bg-white rounded-lg border border-gray-200 shadow-sm min-h-[320px] flex flex-col relative hover:border-primary/50 cursor-pointer transition-colors"
                             >
                                 <div className="p-4 border-b border-gray-50 flex justify-between items-center">
                                     <h3 className="font-semibold text-gray-700">Fechas Clave</h3>
-                                    <button 
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleNavigate('Calendario');
-                                        }}
-                                        className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full text-gray-600 font-medium transition-colors"
-                                    >
-                                        Ir a calendario
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleNavigate('Calendario');
+                                            }}
+                                            className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full text-gray-600 font-medium transition-colors"
+                                        >
+                                            Ir a calendario
+                                        </button>
+                                        {initiative.calendarEvents.length > 0 && renderCardMenu('calendar')}
+                                    </div>
                                 </div>
                                 <div className="flex-1 p-6 overflow-y-auto">
                                     {initiative.calendarEvents.length > 0 ? (
@@ -1191,7 +1381,7 @@ const App: React.FC = () => {
                                                 .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
                                                 .map(event => (
                                                     <div key={event.id} className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
-                                                        <h4 className="font-medium text-gray-800 text-[15px]">{event.title}</h4>
+                                                        <h4 className="font-medium text-gray-800 text-[15px]">{event.title || emptyText}</h4>
                                                         <p className="text-gray-500 text-sm mt-1">{formatEventDate(event.startDate)}</p>
                                                     </div>
                                                 ))
@@ -1208,27 +1398,27 @@ const App: React.FC = () => {
                         </div>
                     )}
                     
-                    {/* ... (Other activeView conditions remain the same, just closing the block for brevity in diff) ... */}
                     {activeView === 'Formulación' && (
                       <div className="flex flex-col gap-6 animate-fade-in-up">
-                          {/* ... Formulation cards (kept as is) ... */}
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                              {/* 1. Problema o brecha */}
                               <div 
                                 className={`bg-white rounded-lg border shadow-sm flex flex-col transition-all cursor-pointer ${initiative.formulation.problem ? 'border-gray-200' : 'border-gray-200 hover:border-primary/50'}`}
                                 style={{ minHeight: '320px' }}
-                                onClick={() => setModals(prev => ({...prev, problem: true}))}
+                                onClick={() => !initiative.formulation.problem && setModals(prev => ({...prev, problem: true}))}
                               >
                                   <div className="p-4 border-b border-gray-50 flex justify-between items-center">
                                       <h3 className="font-semibold text-gray-700">Problema o brecha</h3>
                                       {initiative.formulation.problem && (
-                                          <button className="text-gray-400 hover:text-primary"><Edit2 size={14}/></button>
+                                          <div className="flex items-center gap-2">
+                                            <button onClick={() => setModals(prev => ({...prev, problem: true}))} className="text-gray-400 hover:text-primary"><Edit2 size={14}/></button>
+                                            {renderCardMenu('problem')}
+                                          </div>
                                       )}
                                   </div>
                                   <div className="flex-1 p-6 relative">
                                       {initiative.formulation.problem ? (
                                           <p className="text-gray-600 text-sm leading-relaxed">
-                                              {initiative.formulation.problem}
+                                              {initiative.formulation.problem || emptyText}
                                           </p>
                                       ) : (
                                           <div className="flex flex-col items-center justify-center h-full text-gray-400">
@@ -1239,16 +1429,18 @@ const App: React.FC = () => {
                                   </div>
                               </div>
 
-                              {/* 2. Beneficiarios */}
                               <div 
                                 className={`bg-white rounded-lg border shadow-sm flex flex-col transition-all cursor-pointer ${initiative.formulation.beneficiaries ? 'border-gray-200' : 'border-gray-200 hover:border-primary/50'}`}
                                 style={{ minHeight: '320px' }}
-                                onClick={() => setModals(prev => ({...prev, beneficiaries: true}))}
+                                onClick={() => !initiative.formulation.beneficiaries && setModals(prev => ({...prev, beneficiaries: true}))}
                               >
                                   <div className="p-4 border-b border-gray-50 flex justify-between items-center">
                                       <h3 className="font-semibold text-gray-700">Beneficiarios</h3>
                                       {initiative.formulation.beneficiaries && (
-                                          <button className="text-gray-400 hover:text-primary"><Edit2 size={14}/></button>
+                                          <div className="flex items-center gap-2">
+                                            <button onClick={() => setModals(prev => ({...prev, beneficiaries: true}))} className="text-gray-400 hover:text-primary"><Edit2 size={14}/></button>
+                                            {renderCardMenu('beneficiaries')}
+                                          </div>
                                       )}
                                   </div>
                                   <div className="flex-1 p-6 relative">
@@ -1256,11 +1448,11 @@ const App: React.FC = () => {
                                           <div className="space-y-6">
                                               <div>
                                                   <h4 className="text-sm font-bold text-gray-700 mb-1">Directo</h4>
-                                                  <p className="text-gray-600 text-sm">{initiative.formulation.beneficiaries.direct}</p>
+                                                  <p className="text-gray-600 text-sm">{initiative.formulation.beneficiaries.direct || emptyText}</p>
                                               </div>
                                               <div>
                                                   <h4 className="text-sm font-bold text-gray-700 mb-1">Indirecto</h4>
-                                                  <p className="text-gray-600 text-sm">{initiative.formulation.beneficiaries.indirect}</p>
+                                                  <p className="text-gray-600 text-sm">{initiative.formulation.beneficiaries.indirect || emptyText}</p>
                                               </div>
                                           </div>
                                       ) : (
@@ -1273,79 +1465,160 @@ const App: React.FC = () => {
                               </div>
                           </div>
 
-                          {/* 3. Cobertura y accesibilidad */}
                           <div 
-                            className={`bg-white rounded-lg border shadow-sm flex flex-col transition-all cursor-pointer ${initiative.formulation.coverage ? 'border-gray-200' : 'border-gray-200 hover:border-primary/50'}`}
-                            style={{ minHeight: '320px' }}
-                            onClick={() => setModals(prev => ({...prev, coverage: true}))}
+                            className={`bg-white rounded-lg border shadow-sm flex flex-col transition-all ${initiative.formulation.coverage ? 'border-gray-200' : 'border-gray-200'}`}
+                            style={{ minHeight: '400px' }}
                           >
                                   <div className="p-4 border-b border-gray-50 flex justify-between items-center">
-                                      <h3 className="font-semibold text-gray-700">Cobertura y accesibilidad</h3>
-                                      {initiative.formulation.coverage && (
-                                          <button className="text-gray-400 hover:text-primary"><Edit2 size={14}/></button>
-                                      )}
+                                      <h3 className="font-semibold text-gray-700">Núcleos de integración</h3>
+                                      <div className="flex items-center gap-2">
+                                        {initiative.formulation.coverage && (
+                                          <>
+                                            <button onClick={() => setModals(prev => ({...prev, coverage: true}))} className="text-gray-400 hover:text-primary"><Edit2 size={14}/></button>
+                                            {renderCardMenu('coverage')}
+                                          </>
+                                        )}
+                                      </div>
                                   </div>
                                   <div className="flex-1 p-6 relative">
-                                      {initiative.formulation.coverage ? (
-                                          <div className="flex gap-6 h-full">
-                                              <div className="w-1/3 flex flex-col gap-4">
-                                                  <div>
-                                                      <h4 className="text-sm font-bold text-gray-700 mb-1">Ruta</h4>
-                                                      <p className="text-gray-600 text-sm">Manejar</p>
-                                                  </div>
-                                                  <div>
-                                                      <h4 className="text-sm font-bold text-gray-700 mb-1">Distancia</h4>
-                                                      <p className="text-gray-600 text-sm">1000 metros</p>
-                                                  </div>
-                                                  {initiative.formulation.coverage.link && (
-                                                      <a 
-                                                        href="https://nucleos.cerolabs.cl/nucleos/3418c787-7aa4-4211-85d1-66bafa75bf40"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        className="mt-4 p-3 border border-gray-200 rounded flex items-center gap-3 text-gray-600 text-xs hover:bg-gray-50 hover:text-primary transition-colors cursor-pointer group/link"
+                                      {initiative.formulation.coverage && initiative.formulation.coverage.nuclei.length > 0 ? (
+                                          <div className="flex flex-col h-full gap-4 animate-in fade-in duration-500">
+                                              <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                                                <div className="flex gap-4">
+                                                  {initiative.formulation.coverage.nuclei.map(n => (
+                                                      <span 
+                                                        key={n.id}
+                                                        onClick={() => setActiveNucleusId(n.id)}
+                                                        className={`text-xs font-bold cursor-pointer transition-all pb-2 -mb-2.5 ${activeNucleusId === n.id ? 'text-primary border-b-2 border-primary' : 'text-gray-400'}`}
                                                       >
-                                                          <LinkIcon size={14} className="group-hover/link:text-primary" />
-                                                          <span className="truncate group-hover/link:underline">Núcleo: Iniciativa 322 mejoramiento Vicuña Mackenna</span>
-                                                      </a>
-                                                  )}
+                                                          {n.name}
+                                                      </span>
+                                                  ))}
+                                                </div>
+                                                <a 
+                                                  href={initiative.formulation.coverage.nuclei.find(n => n.id === activeNucleusId)?.link} 
+                                                  target="_blank" 
+                                                  rel="noopener noreferrer"
+                                                  className="bg-[#2a2aa9] text-white text-[10px] px-3 py-1.5 rounded-full flex items-center gap-1.5 font-bold hover:bg-opacity-90 transition-all shadow-sm"
+                                                >
+                                                  Abrir núcleo <ExternalLink size={12} />
+                                                </a>
                                               </div>
-                                              <div className="flex-1 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 relative">
-                                                  <img 
-                                                    src="https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=1200&auto=format&fit=crop" 
-                                                    alt="Map" 
-                                                    className="w-full h-full object-cover opacity-50 grayscale"
-                                                  />
-                                                  {/* Visual simulation of map content */}
-                                                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" viewBox="0 0 400 320" preserveAspectRatio="none">
-                                                      <path 
-                                                        d="M150,160 Q180,100 220,130 T280,160 T220,240 T150,220 T100,160 T150,160 Z"
-                                                        className="fill-blue-400/30 stroke-blue-500 stroke-2"
-                                                      />
-                                                      <circle cx="200" cy="180" r="4" className="fill-white stroke-blue-600 stroke-2" />
-                                                  </svg>
-                                                  <button className="absolute top-2 right-2 text-gray-500 bg-white p-1 rounded hover:text-gray-700"><Edit2 size={12}/></button>
+
+                                              <div className="flex-1 mt-4">
+                                                <h4 className="text-primary font-bold text-sm mb-4">
+                                                    {activeNucleusId === 'n2' ? "Percepción del delito" : "Movilidad y accidentes"}
+                                                </h4>
+                                                
+                                                <div className="grid grid-cols-12 gap-1 border border-gray-100 rounded-lg overflow-hidden h-[260px]">
+                                                  <div className="col-span-4 bg-white p-3 border-r border-gray-50 flex flex-col gap-2 overflow-y-auto">
+                                                    
+                                                    {activeNucleusId === 'n2' ? (
+                                                        <div className="border border-gray-100 rounded p-2 bg-white flex flex-col h-full">
+                                                            <div className="flex justify-between items-start mb-1">
+                                                                <div>
+                                                                    <h5 className="text-[8px] font-bold text-gray-700 uppercase">Cuarteles carabineros</h5>
+                                                                    <p className="text-[7px] text-gray-400">Cuarteles por categoría</p>
+                                                                </div>
+                                                                <Search size={10} className="text-gray-300" />
+                                                            </div>
+                                                            <div className="flex-1 flex items-end justify-between gap-1 px-1 pb-1 border-b border-gray-50 mb-2">
+                                                                <div className="w-1/4 bg-[#5b4d96] h-[90%] rounded-t-sm"></div>
+                                                                <div className="w-1/4 bg-[#4a72a8] h-[30%] rounded-t-sm"></div>
+                                                                <div className="w-1/4 bg-[#499d9b] h-[15%] rounded-t-sm"></div>
+                                                                <div className="w-1/4 bg-[#499d9b] h-[25%] rounded-t-sm"></div>
+                                                            </div>
+                                                            <div className="flex flex-col items-center justify-center text-center pb-2">
+                                                                <span className="text-lg font-bold text-gray-800 leading-tight">28</span>
+                                                                <span className="text-[7px] text-gray-400 uppercase font-bold">Total Cuarteles</span>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="border border-gray-100 rounded p-2 bg-white">
+                                                            <div className="flex justify-between items-start mb-1">
+                                                                <span className="text-[8px] font-bold text-gray-700 uppercase">Recepciones finales</span>
+                                                            </div>
+                                                            <div className="h-16 flex items-end justify-between gap-0.5">
+                                                                <div className="w-1/6 bg-primary/30 h-[40%]"></div>
+                                                                <div className="w-1/6 bg-primary/50 h-[80%]"></div>
+                                                                <div className="w-1/6 bg-primary/40 h-[60%]"></div>
+                                                                <div className="w-1/6 bg-primary h-[90%]"></div>
+                                                                <div className="w-1/6 bg-primary/60 h-[50%]"></div>
+                                                                <div className="w-1/6 bg-primary/70 h-[30%]"></div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {activeNucleusId === 'n1' && (
+                                                        <div className="border border-gray-100 rounded p-2 bg-white">
+                                                            <span className="text-[8px] font-bold text-gray-400 block uppercase">Personas</span>
+                                                            <span className="text-lg font-bold text-gray-800 block leading-tight">3.890</span>
+                                                            <span className="text-[7px] text-gray-400 leading-tight block">Con dependencia moderada</span>
+                                                        </div>
+                                                    )}
+                                                  </div>
+                                                  <div className="col-span-8 bg-gray-50 relative">
+                                                    <img 
+                                                      src="https://images.unsplash.com/photo-1526778548025-fa2f459cd5ce?q=80&w=1200&auto=format&fit=crop" 
+                                                      alt="Map" 
+                                                      className="w-full h-full object-cover grayscale opacity-30"
+                                                    />
+                                                    <div className="absolute inset-0 flex items-center justify-center">
+                                                      <svg className="w-full h-full" viewBox="0 0 400 320" preserveAspectRatio="none">
+                                                         {activeNucleusId === 'n1' ? (
+                                                            <>
+                                                                <path d="M120,60 L220,40 L310,100 L260,200 L160,230 Z" className="fill-purple-500/30 stroke-purple-600 stroke-1" />
+                                                                <path d="M230,160 L290,140 L330,220 L290,260 L230,240 Z" className="fill-green-500/30 stroke-green-600 stroke-1" />
+                                                            </>
+                                                         ) : (
+                                                            <>
+                                                                <circle cx="280" cy="140" r="30" className="fill-yellow-500/30" />
+                                                                <circle cx="270" cy="130" r="3" className="fill-yellow-600" />
+                                                                <circle cx="290" cy="150" r="4" className="fill-yellow-600" />
+                                                                <path d="M200,80 L250,70 L270,120 L220,130 Z" className="fill-purple-500/30" />
+                                                                <circle cx="150" cy="200" r="4" className="fill-green-600" />
+                                                                <circle cx="160" cy="180" r="3" className="fill-green-600" />
+                                                            </>
+                                                         )}
+                                                      </svg>
+                                                    </div>
+                                                    <div className="absolute bottom-2 right-2 bg-white px-1.5 py-0.5 rounded border border-gray-100 flex text-[6px] font-bold">
+                                                       <span className="px-1.5 py-0.5 bg-gray-50 border-r border-gray-100 uppercase">Mapa</span>
+                                                       <span className="px-1.5 py-0.5 uppercase">Satélite</span>
+                                                    </div>
+                                                  </div>
+                                                </div>
                                               </div>
                                           </div>
                                       ) : (
-                                          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                                              <LinkIcon size={32} strokeWidth={1.5} className="mb-2 text-gray-400" />
-                                              <span className="text-lg font-light">Asociar núcleo de información</span>
+                                          <div className="flex flex-col items-center justify-center h-full gap-4">
+                                              <button 
+                                                onClick={() => setModals(prev => ({...prev, coverage: true}))}
+                                                className="flex items-center gap-3 bg-indigo-50 hover:bg-indigo-100 text-primary px-8 py-3 rounded-md font-semibold transition-all shadow-sm group"
+                                              >
+                                                  <LinkIcon size={20} className="group-hover:rotate-12 transition-transform" />
+                                                  <span>Vincular núcleo de integración</span>
+                                              </button>
+                                              <span className="text-gray-400 text-sm font-medium">
+                                                  Podrás visualizar los indicadores clave de esta iniciativa
+                                              </span>
                                           </div>
                                       )}
                                   </div>
                           </div>
 
-                          {/* 4. Resultados esperados */}
                           <div 
                             className={`bg-white rounded-lg border shadow-sm flex flex-col transition-all cursor-pointer ${initiative.formulation.expectedResults.length > 0 ? 'border-gray-200' : 'border-gray-200 hover:border-primary/50'}`}
                             style={{ minHeight: '320px' }}
-                            onClick={() => setModals(prev => ({...prev, expectedResults: true}))}
+                            onClick={() => initiative.formulation.expectedResults.length === 0 && setModals(prev => ({...prev, expectedResults: true}))}
                           >
                                   <div className="p-4 border-b border-gray-50 flex justify-between items-center">
                                       <h3 className="font-semibold text-gray-700">Resultados esperados</h3>
                                       {initiative.formulation.expectedResults.length > 0 && (
-                                          <button className="text-gray-400 hover:text-primary"><Edit2 size={14}/></button>
+                                          <div className="flex items-center gap-2">
+                                            <button onClick={() => setModals(prev => ({...prev, expectedResults: true}))} className="text-gray-400 hover:text-primary"><Edit2 size={14}/></button>
+                                            {renderCardMenu('expectedResults')}
+                                          </div>
                                       )}
                                   </div>
                                   <div className="flex-1 p-6 relative">
@@ -1360,10 +1633,10 @@ const App: React.FC = () => {
                                               <div className="bg-white">
                                                   {initiative.formulation.expectedResults.map((item) => (
                                                       <div key={item.id} className="grid grid-cols-12 p-4 text-xs text-gray-700 border-b border-gray-100 last:border-0 items-center">
-                                                          <div className="col-span-4 pr-2">{item.description}</div>
-                                                          <div className="col-span-4 pr-2">{item.indicator}</div>
-                                                          <div className="col-span-2 text-center font-medium">{item.baseLine}</div>
-                                                          <div className="col-span-2 text-center font-medium">{item.goal}</div>
+                                                          <div className="col-span-4 pr-2">{item.description || emptyText}</div>
+                                                          <div className="col-span-4 pr-2">{item.indicator || emptyText}</div>
+                                                          <div className="col-span-2 text-center font-medium">{item.baseLine || emptyText}</div>
+                                                          <div className="col-span-2 text-center font-medium">{item.goal || emptyText}</div>
                                                       </div>
                                                   ))}
                                               </div>
@@ -1381,69 +1654,79 @@ const App: React.FC = () => {
 
                     {activeView === 'Plan de inversión' && (
                       <div className="animate-fade-in-up">
-                          {/* ... Plan de inversión view (kept as is) ... */}
                           <div className="flex items-center gap-4 mb-6">
                               <span className="font-semibold text-gray-700">Tipo de financiamiento</span>
                               <div className="relative">
                                   <button className="flex items-center justify-between gap-3 px-4 py-1.5 bg-white border border-gray-300 rounded-full text-sm text-gray-600 hover:border-gray-400 transition-colors min-w-[140px]">
-                                      {initiative.investment ? "Mixto" : "Seleccionar"}
+                                      {(initiative.investments || []).length > 1 ? "Mixto" : (initiative.investments?.[0]?.type || "Seleccionar")}
                                       <ChevronDown size={14} />
                                   </button>
                               </div>
                           </div>
                           <div className="flex flex-col">
+                              {/* Financiamiento Tabs */}
                               <div className="flex items-center gap-1">
-                                  <div className="bg-white border-t border-l border-r border-gray-200 rounded-t-lg px-6 py-2.5 text-sm font-semibold text-gray-700 relative top-[1px] z-10 shadow-[0_-1px_2px_rgba(0,0,0,0.02)]">
-                                      Financiamiento 1
-                                  </div>
-                                  <div className="px-4 py-2.5 text-sm font-medium text-gray-400 hover:text-gray-600 cursor-pointer flex items-center gap-1">
-                                      <Plus size={14} /> Añadir
+                                  {(initiative.investments || []).map((_, idx) => (
+                                      <button 
+                                          key={idx}
+                                          onClick={() => setActiveInvestmentIndex(idx)}
+                                          className={`bg-white border-t border-l border-r border-gray-200 rounded-t-lg px-6 py-2.5 text-sm font-semibold relative top-[1px] z-10 transition-colors ${activeInvestmentIndex === idx ? 'text-primary bg-white shadow-[0_-1px_2px_rgba(0,0,0,0.02)]' : 'text-gray-400 hover:text-gray-600 bg-gray-50/50'}`}
+                                      >
+                                          Financiamiento {idx + 1}
+                                      </button>
+                                  ))}
+                                  <div 
+                                      onClick={handleAddInvestment}
+                                      className="px-4 py-2.5 text-sm font-medium text-gray-400 hover:text-gray-600 cursor-pointer flex items-center gap-1 group transition-colors"
+                                  >
+                                      <Plus size={14} className="group-hover:scale-110 transition-transform" /> Añadir
                                   </div>
                               </div>
                               <div className="space-y-6">
                                   {/* Financiamiento Details Card */}
                                   <div className="bg-white border border-gray-200 rounded-b-lg rounded-tr-lg p-6 relative shadow-sm min-h-[220px] flex flex-col">
-                                      {initiative.investment ? (
+                                      {initiative.investments && initiative.investments[activeInvestmentIndex] && initiative.investments[activeInvestmentIndex].type ? (
                                           <>
-                                              <div className="absolute top-6 right-6">
+                                              <div className="absolute top-6 right-6 flex items-center gap-2">
                                                   <button onClick={openInvestmentModal} className="text-gray-400 hover:text-primary transition-colors">
                                                       <Edit2 size={16} />
                                                   </button>
+                                                  {renderCardMenu('investment')}
                                               </div>
                                               <span className="inline-block px-4 py-1 rounded-full border border-gray-300 text-gray-700 text-sm font-medium mb-6 w-fit">
-                                                  {initiative.investment.type}
+                                                  {initiative.investments[activeInvestmentIndex].type || emptyText}
                                               </span>
-                                              {initiative.investment.type === 'Propio' && (
+                                              {initiative.investments[activeInvestmentIndex].type === 'Propio' && (
                                                   <div className="space-y-6">
                                                       <div>
                                                           <h4 className="text-sm font-semibold text-gray-700 mb-2">Departamento</h4>
-                                                          <p className="text-gray-600">{initiative.investment.department}</p>
+                                                          <p className="text-gray-600">{initiative.investments[activeInvestmentIndex].department || emptyText}</p>
                                                       </div>
                                                       <div className="border-t border-gray-100 pt-4">
                                                           <h4 className="text-sm font-semibold text-gray-700 mb-3">Fecha de inscripción</h4>
                                                           <span className="inline-block px-3 py-1.5 bg-white border border-gray-200 rounded-md text-gray-600 text-sm shadow-sm">
-                                                              {initiative.investment.inscriptionDate}
+                                                              {initiative.investments[activeInvestmentIndex].inscriptionDate || emptyText}
                                                           </span>
                                                       </div>
                                                   </div>
                                               )}
-                                              {initiative.investment.type === 'Externo' && (
+                                              {initiative.investments[activeInvestmentIndex].type === 'Externo' && (
                                                   <div className="space-y-6">
                                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                           <div>
                                                               <h4 className="text-sm font-semibold text-gray-700 mb-1">Estado</h4>
-                                                              <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${initiative.investment.postulationState === 'Adjudicado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                                  {initiative.investment.postulationState}
+                                                              <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${initiative.investments[activeInvestmentIndex].postulationState === 'Adjudicado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                                  {initiative.investments[activeInvestmentIndex].postulationState || emptyText}
                                                               </span>
                                                           </div>
                                                           <div>
                                                               <h4 className="text-sm font-semibold text-gray-700 mb-1">Financista</h4>
-                                                              <p className="text-gray-600">{initiative.investment.financier}</p>
+                                                              <p className="text-gray-600">{initiative.investments[activeInvestmentIndex].financier || emptyText}</p>
                                                           </div>
                                                       </div>
                                                       <div>
                                                           <h4 className="text-sm font-semibold text-gray-700 mb-1">Fondo</h4>
-                                                          <p className="text-gray-600">{initiative.investment.fund}</p>
+                                                          <p className="text-gray-600">{initiative.investments[activeInvestmentIndex].fund || emptyText}</p>
                                                       </div>
                                                   </div>
                                               )}
@@ -1455,13 +1738,12 @@ const App: React.FC = () => {
                                                   className="flex items-center gap-2 text-gray-400 hover:text-primary transition-colors group"
                                               >
                                                   <Plus size={24} strokeWidth={1.5} className="group-hover:scale-110 transition-transform" />
-                                                  <span className="text-lg font-light">Añadir información de financiamiento</span>
+                                                  <span className="text-lg font-light">Añadir información</span>
                                               </button>
                                           </div>
                                       )}
                                   </div>
 
-                                  {/* Tabla de Gastos Card */}
                                   <div className="bg-white border border-gray-200 rounded-lg p-6 min-h-[220px] flex flex-col shadow-sm relative">
                                       <div className="flex justify-between items-center mb-4">
                                           <h3 className="text-sm font-semibold text-gray-700">Tabla de gastos</h3>
@@ -1485,10 +1767,10 @@ const App: React.FC = () => {
                                                   <tbody className="text-sm text-gray-700">
                                                       {initiative.expenses.map((item) => (
                                                           <tr key={item.id} className="border-b border-gray-50 last:border-0">
-                                                              <td className="py-3 pr-2">{item.item}</td>
-                                                              <td className="py-3 pr-2">{item.total}</td>
-                                                              <td className="py-3 pr-2">{item.spent}</td>
-                                                              <td className="py-3">{item.execution}</td>
+                                                              <td className="py-3 pr-2">{item.item || emptyText}</td>
+                                                              <td className="py-3 pr-2">{item.total || emptyText}</td>
+                                                              <td className="py-3 pr-2">{item.spent || emptyText}</td>
+                                                              <td className="py-3">{item.execution || emptyText}</td>
                                                           </tr>
                                                       ))}
                                                   </tbody>
@@ -1507,11 +1789,10 @@ const App: React.FC = () => {
                                       )}
                                   </div>
 
-                                  {/* Documentos Card (Inversión) */}
                                   <div className="bg-white border border-gray-200 rounded-lg p-6 min-h-[220px] flex flex-col relative shadow-sm">
                                       <div className="flex justify-between items-center mb-4">
                                           <h3 className="text-sm font-semibold text-gray-700">Documentos</h3>
-                                          {initiative.investment?.documents && initiative.investment.documents.length > 0 && (
+                                          {initiative.investments[activeInvestmentIndex]?.documents && initiative.investments[activeInvestmentIndex].documents!.length > 0 && (
                                             <button 
                                               onClick={() => openDocumentsModal('investment')}
                                               className="text-gray-400 hover:text-primary transition-colors"
@@ -1522,9 +1803,9 @@ const App: React.FC = () => {
                                       </div>
                                       
                                       <div className="flex-1">
-                                          {initiative.investment?.documents && initiative.investment.documents.length > 0 ? (
+                                          {initiative.investments[activeInvestmentIndex]?.documents && initiative.investments[activeInvestmentIndex].documents!.length > 0 ? (
                                             <div className="space-y-3">
-                                                {initiative.investment.documents.map((doc) => (
+                                                {initiative.investments[activeInvestmentIndex].documents!.map((doc) => (
                                                     <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-100">
                                                         <div className="flex items-center gap-3">
                                                             <div className="bg-white p-2 rounded border border-gray-200 text-primary">
@@ -1561,64 +1842,80 @@ const App: React.FC = () => {
 
                     {activeView === 'Ejecución' && (
                       <div className="animate-fade-in-up">
-                          {/* ... Ejecución view (kept as is) ... */}
                           <div className="flex flex-col">
+                              {/* Dynamic Tabs for Licitaciones */}
                               <div className="flex items-center gap-1">
-                                  <div className="bg-white border-t border-l border-r border-gray-200 rounded-t-lg px-6 py-2.5 text-sm font-semibold text-gray-700 relative top-[1px] z-10 shadow-[0_-1px_2px_rgba(0,0,0,0.02)]">
-                                      Licitación 1
-                                  </div>
-                                  <div className="px-4 py-2.5 text-sm font-medium text-gray-400 hover:text-gray-600 cursor-pointer flex items-center gap-1">
-                                      <Plus size={14} /> Añadir
+                                  {(initiative.execution?.licitaciones || []).map((_, idx) => (
+                                      <button 
+                                          key={idx}
+                                          onClick={() => setActiveLicitacionIndex(idx)}
+                                          className={`bg-white border-t border-l border-r border-gray-200 rounded-t-lg px-6 py-2.5 text-sm font-semibold relative top-[1px] z-10 transition-colors ${activeLicitacionIndex === idx ? 'text-primary bg-white shadow-[0_-1px_2px_rgba(0,0,0,0.02)]' : 'text-gray-400 hover:text-gray-600 bg-gray-50/50'}`}
+                                      >
+                                          Licitación {idx + 1}
+                                      </button>
+                                  ))}
+                                  <div 
+                                      onClick={handleAddLicitacion}
+                                      className="px-4 py-2.5 text-sm font-medium text-gray-400 hover:text-gray-600 cursor-pointer flex items-center gap-1 group transition-colors"
+                                  >
+                                      <Plus size={14} className="group-hover:scale-110 transition-transform" /> Añadir
                                   </div>
                               </div>
                               <div className="space-y-6">
-                                  {/* Licitación Details Card */}
-                                  <div className="bg-white border border-gray-200 rounded-b-lg rounded-tr-lg p-6 relative shadow-sm min-h-[300px] flex flex-col">
-                                        {initiative.execution?.licitacion ? (
+                                  {/* Licitación Card with empty state handling */}
+                                  <div className="bg-white border border-gray-200 rounded-b-lg rounded-tr-lg p-6 relative shadow-sm min-h-[300px] flex flex-col transition-all">
+                                        {initiative.execution?.licitaciones && initiative.execution.licitaciones[activeLicitacionIndex] && !isLicitacionEmpty(initiative.execution.licitaciones[activeLicitacionIndex]) ? (
                                             <div className="flex-1 animate-in fade-in">
-                                                <div className="absolute top-6 right-6">
-                                                    <button onClick={openExecutionLicitacionModal} className="text-gray-400 hover:text-primary transition-colors">
+                                                <div className="absolute top-6 right-6 flex items-center gap-2">
+                                                    <button onClick={openExecutionLicitacionModal} className="text-gray-400 hover:text-primary transition-colors p-1">
                                                         <Edit2 size={16} />
                                                     </button>
+                                                    {renderCardMenu('licitacion')}
                                                 </div>
                                                 <div className="flex items-center gap-3 mb-6">
-                                                    <h3 className="font-semibold text-gray-700">Licitación</h3>
+                                                    <h3 className="font-semibold text-gray-700">Licitación {activeLicitacionIndex + 1}</h3>
                                                     <div className="flex gap-2">
-                                                        <span className="px-3 py-1 rounded-full border border-gray-300 text-gray-700 text-xs font-medium bg-white">
-                                                            {initiative.execution.licitacion.type}
-                                                        </span>
-                                                        <span className="px-3 py-1 rounded-full border border-gray-300 text-gray-700 text-xs font-medium bg-white">
-                                                            {initiative.execution.licitacion.status}
-                                                        </span>
+                                                        {initiative.execution.licitaciones[activeLicitacionIndex].type && (
+                                                            <span className="px-3 py-1 rounded-full border border-gray-300 text-gray-700 text-xs font-medium bg-white">
+                                                                {initiative.execution.licitaciones[activeLicitacionIndex].type}
+                                                            </span>
+                                                        )}
+                                                        {initiative.execution.licitaciones[activeLicitacionIndex].status && (
+                                                            <span className="px-3 py-1 rounded-full border border-gray-300 text-gray-700 text-xs font-medium bg-white">
+                                                                {initiative.execution.licitaciones[activeLicitacionIndex].status}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                                     <div className="space-y-6">
                                                         <div>
                                                             <h4 className="text-sm font-bold text-gray-700 mb-1">Obra</h4>
-                                                            <p className="text-sm text-gray-600">Mejoramiento Cesfam Pueblo Lo Espejo, Segunda Etapa</p>
+                                                            <p className="text-sm text-gray-600">{initiative.name}</p>
                                                         </div>
                                                         <div>
                                                             <h4 className="text-sm font-bold text-gray-700 mb-1">Detalle de licitación</h4>
-                                                            <p className="text-sm text-gray-600">{initiative.execution.licitacion.detail}</p>
+                                                            <p className="text-sm text-gray-600">{initiative.execution.licitaciones[activeLicitacionIndex].detail || emptyText}</p>
                                                         </div>
                                                         <div>
                                                             <h4 className="text-sm font-bold text-gray-700 mb-1">Estado de licitación</h4>
-                                                            <p className="text-sm text-gray-600">{initiative.execution.licitacion.status}</p>
+                                                            <p className="text-sm text-gray-600">{initiative.execution.licitaciones[activeLicitacionIndex].status || emptyText}</p>
                                                         </div>
                                                         <div>
                                                             <h4 className="text-sm font-bold text-gray-700 mb-1">Link</h4>
-                                                            <p className="text-sm text-gray-600 truncate">{initiative.execution.licitacion.link}</p>
+                                                            <p className="text-sm text-gray-600 truncate">{initiative.execution.licitaciones[activeLicitacionIndex].link || emptyText}</p>
                                                         </div>
                                                         <div>
                                                             <h4 className="text-sm font-bold text-gray-700 mb-2">Fechas importantes</h4>
                                                             <div className="space-y-1">
-                                                                {initiative.execution.licitacion.dates.map((d, i) => (
-                                                                    <div key={i} className="flex gap-4 text-sm">
-                                                                        <span className="w-24 text-gray-500">{d.date}</span>
-                                                                        <span className="text-gray-700">{d.title}</span>
-                                                                    </div>
-                                                                ))}
+                                                                {(initiative.execution.licitaciones[activeLicitacionIndex].dates || []).length > 0 ? (
+                                                                    initiative.execution.licitaciones[activeLicitacionIndex].dates.map((d, i) => (
+                                                                        <div key={i} className="flex gap-4 text-sm">
+                                                                            <span className="w-24 text-gray-500">{d.date}</span>
+                                                                            <span className="text-gray-700">{d.title || emptyText}</span>
+                                                                        </div>
+                                                                    ))
+                                                                ) : emptyText}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1629,28 +1926,28 @@ const App: React.FC = () => {
                                                         </div>
                                                         <div>
                                                             <h4 className="text-sm font-bold text-gray-700 mb-1">Adjudicado / Ejecutor</h4>
-                                                            <p className="text-sm text-gray-600">{initiative.execution.licitacion.executor}</p>
+                                                            <p className="text-sm text-gray-600">{initiative.execution.licitaciones[activeLicitacionIndex].executor || emptyText}</p>
                                                         </div>
                                                         <div>
                                                             <h4 className="text-sm font-bold text-gray-700 mb-1">Resolución</h4>
-                                                            <p className="text-sm text-gray-600">{initiative.execution.licitacion.resolution}</p>
+                                                            <p className="text-sm text-gray-600">{initiative.execution.licitaciones[activeLicitacionIndex].resolution || emptyText}</p>
                                                         </div>
                                                         <div>
                                                             <h4 className="text-sm font-bold text-gray-700 mb-1">Monto</h4>
-                                                            <p className="text-sm text-gray-600">{initiative.execution.licitacion.amount}</p>
+                                                            <p className="text-sm text-gray-600">{initiative.execution.licitaciones[activeLicitacionIndex].amount || emptyText}</p>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
                                         ) : (
                                             <div className="flex-1 flex flex-col justify-start">
-                                                <h3 className="font-semibold text-gray-700 mb-12">Licitación</h3>
+                                                <h3 className="font-semibold text-gray-700 mb-6">Licitación {activeLicitacionIndex + 1}</h3>
                                                 <div className="flex-1 flex flex-col items-center justify-center">
                                                     <button 
                                                         onClick={openExecutionLicitacionModal}
-                                                        className="flex items-center gap-2 text-gray-400 hover:text-primary transition-colors group"
+                                                        className="flex flex-col items-center gap-2 text-gray-400 hover:text-primary transition-colors group"
                                                     >
-                                                        <Plus size={24} strokeWidth={1.5} className="group-hover:scale-110 transition-transform" />
+                                                        <Plus size={32} strokeWidth={1.5} className="group-hover:scale-110 transition-transform mb-2" />
                                                         <span className="text-lg font-light">Añadir información</span>
                                                     </button>
                                                 </div>
@@ -1658,14 +1955,46 @@ const App: React.FC = () => {
                                         )}
                                   </div>
 
-                                  {/* Ejecución Placeholder Card */}
-                                  <div className="bg-white border border-gray-200 rounded-lg p-6 min-h-[220px] flex flex-col shadow-sm">
-                                        <h3 className="text-sm font-semibold text-gray-700 mb-4">Ejecución</h3>
-                                        <div className="flex-1 flex items-center justify-center">
-                                            <button className="flex items-center gap-2 text-gray-400 hover:text-primary transition-colors group">
-                                                <Plus size={20} strokeWidth={1.5} className="group-hover:scale-110 transition-transform" />
-                                                <span className="font-light">Añadir información</span>
-                                            </button>
+                                  {/* Ejecución Details Card */}
+                                  <div className="bg-white border border-gray-200 rounded-lg p-6 min-h-[220px] flex flex-col shadow-sm relative">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h3 className="text-sm font-semibold text-gray-700">Ejecución</h3>
+                                            {initiative.execution?.progress && (
+                                              <button onClick={openExecutionProgressModal} className="text-gray-400 hover:text-primary transition-colors">
+                                                <Edit2 size={16} />
+                                              </button>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="flex-1 flex flex-col">
+                                          {initiative.execution?.progress ? (
+                                            <div className="space-y-4 animate-in fade-in">
+                                              <div className="grid grid-cols-12 gap-4">
+                                                <div className="col-span-4 text-[10px] font-bold text-gray-400 uppercase">Obra</div>
+                                                <div className="col-span-4 text-[10px] font-bold text-gray-400 uppercase">Detalle</div>
+                                                <div className="col-span-4 text-[10px] font-bold text-gray-400 uppercase">Comentario</div>
+                                              </div>
+                                              {initiative.execution.progress.map((row) => (
+                                                <div key={row.id} className="grid grid-cols-12 gap-4 items-start border-b border-gray-50 pb-2 last:border-0">
+                                                  <div className="col-span-4 text-xs font-bold text-gray-700">{row.label}</div>
+                                                  <div className="col-span-4 text-xs text-gray-600">{row.detail || emptyText}</div>
+                                                  <div className="col-span-4 text-xs text-gray-500 italic">
+                                                    {row.comment ? `"${row.comment}"` : emptyText}
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <div className="flex-1 flex items-center justify-center">
+                                                <button 
+                                                  onClick={openExecutionProgressModal}
+                                                  className="flex items-center gap-2 text-gray-400 hover:text-primary transition-colors group"
+                                                >
+                                                    <Plus size={20} strokeWidth={1.5} className="group-hover:scale-110 transition-transform mb-1" />
+                                                    <span className="font-light">Añadir información</span>
+                                                </button>
+                                            </div>
+                                          )}
                                         </div>
                                   </div>
 
@@ -1683,7 +2012,7 @@ const App: React.FC = () => {
                                             )}
                                         </div>
                                         
-                                        <div className={initiative.execution?.documents && initiative.execution.documents.length > 0 ? "" : "mt-8 flex justify-center"}>
+                                        <div className={initiative.execution?.documents && initiative.execution.documents.length > 0 ? "" : "flex justify-center py-4"}>
                                             {initiative.execution?.documents && initiative.execution.documents.length > 0 ? (
                                                 <div className="space-y-3">
                                                     {initiative.execution.documents.map((doc) => (
@@ -1706,7 +2035,7 @@ const App: React.FC = () => {
                                             ) : (
                                                 <button 
                                                   onClick={() => openDocumentsModal('execution')}
-                                                  className="flex items-center gap-2 text-gray-400 hover:text-primary transition-colors group"
+                                                  className="flex flex-col items-center gap-1 text-gray-400 hover:text-primary transition-colors group"
                                                 >
                                                     <Plus size={20} strokeWidth={1.5} className="group-hover:scale-110 transition-transform" />
                                                     <span className="font-light">Añadir información</span>
@@ -1719,52 +2048,78 @@ const App: React.FC = () => {
                       </div>
                     )}
                     
-                    {/* ... (Other views remain unchanged) ... */}
                     {activeView === 'Indicadores de impacto' && (
-                        /* ... Indicators code ... */
-                        <div className="animate-fade-in-up">
-                            <div className="bg-white rounded-lg border border-gray-200 shadow-sm min-h-[400px] flex flex-col relative hover:border-primary/50 transition-colors">
-                                {initiative.impactIndicators.length > 0 ? (
-                                    <>
-                                        <div className="p-6 border-b border-gray-50 flex justify-between items-center">
-                                            <h3 className="font-semibold text-gray-700">Indicadores de impacto</h3>
-                                            <button onClick={openImpactIndicatorsModal} className="text-gray-400 hover:text-primary transition-colors">
-                                                <Edit2 size={16} />
-                                            </button>
+                        <div className="animate-fade-in-up space-y-8">
+                            <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+                                <div className="p-6 border-b border-gray-50 flex items-center gap-3">
+                                    <Target className="text-primary" size={24} />
+                                    <div>
+                                        <h3 className="font-bold text-gray-800 text-lg">Seguimiento de Metas (Formulación)</h3>
+                                        <p className="text-xs text-gray-500 mt-1">Avance real de los resultados esperados definidos en la etapa de formulación.</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="p-0">
+                                    {initiative.formulation.expectedResults.length > 0 ? (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                        <th className="px-6 py-4 border-b">Resultado / Indicador</th>
+                                                        <th className="px-6 py-4 border-b text-center">Meta</th>
+                                                        <th className="px-6 py-4 border-b text-center">Estado Real</th>
+                                                        <th className="px-6 py-4 border-b">Comentario de Logro</th>
+                                                        <th className="px-6 py-4 border-b text-right">Acción</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {initiative.formulation.expectedResults.map((res) => (
+                                                        <tr key={res.id} className="hover:bg-gray-50/50 transition-colors group">
+                                                            <td className="px-6 py-4">
+                                                                <p className="text-sm font-bold text-gray-800 leading-snug mb-1">{res.description || emptyText}</p>
+                                                                <p className="text-xs text-gray-500 italic">{res.indicator || emptyText}</p>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-center">
+                                                                <span className="text-sm font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100">{res.goal || emptyText}</span>
+                                                            </td>
+                                                            <td className="px-6 py-4">
+                                                                <div className="flex justify-center">
+                                                                    {getFulfillmentBadge(res.status)}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4">
+                                                                {res.fulfillmentComment ? (
+                                                                    <p className="text-xs text-gray-600 line-clamp-2 italic" title={res.fulfillmentComment}>"{res.fulfillmentComment}"</p>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-gray-400">Sin comentarios registrados</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-right">
+                                                                <button 
+                                                                    onClick={() => openFulfillmentModal(res)}
+                                                                    className="text-xs font-bold text-primary border border-primary px-3 py-1.5 rounded hover:bg-primary hover:text-white transition-all flex items-center gap-1 ml-auto"
+                                                                >
+                                                                    Evaluar <Edit2 size={12}/>
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
                                         </div>
-                                        <div className="p-8">
-                                            <div className="grid grid-cols-12 gap-6 mb-4 border-b border-gray-100 pb-2">
-                                                <div className="col-span-4 text-sm font-bold text-gray-700">KPI</div>
-                                                <div className="col-span-2 text-sm font-bold text-gray-700">% de logro</div>
-                                                <div className="col-span-6 text-sm font-bold text-gray-700">Descripción</div>
-                                            </div>
-                                            <div className="space-y-6">
-                                                {initiative.impactIndicators.map((indicator) => (
-                                                    <div key={indicator.id} className="grid grid-cols-12 gap-6 items-start">
-                                                        <div className="col-span-4 text-sm text-gray-700 font-medium">{indicator.name}</div>
-                                                        <div className="col-span-2 text-sm text-gray-600">{indicator.percentage}</div>
-                                                        <div className="col-span-6 text-sm text-gray-600">{indicator.description}</div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="p-6 border-b border-gray-50">
-                                            <h3 className="font-semibold text-gray-700">Indicadores de impacto</h3>
-                                        </div>
-                                        <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-6">
+                                    ) : (
+                                        <div className="p-12 text-center text-gray-400">
+                                            <Target size={40} className="mx-auto mb-3 opacity-20" />
+                                            <p className="text-sm">No se han definido resultados esperados en la formulación.</p>
                                             <button 
-                                                onClick={openImpactIndicatorsModal}
-                                                className="flex items-center gap-2 text-gray-400 hover:text-primary transition-colors group"
+                                                onClick={() => setActiveView('Formulación')}
+                                                className="text-primary hover:underline text-xs font-bold mt-2"
                                             >
-                                                <Plus size={32} strokeWidth={1.5} className="mb-2 group-hover:scale-110 transition-transform" />
-                                                <span className="text-lg font-light">Añadir información</span>
+                                                Ir a Formulación para añadir metas
                                             </button>
                                         </div>
-                                    </>
-                                )}
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -1797,16 +2152,19 @@ const App: React.FC = () => {
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                   {initiative.participation.map((entry) => (
-                                    <tr key={entry.id} className="hover:bg-gray-50 transition-colors group">
+                                    <tr 
+                                      key={entry.id} 
+                                      onClick={() => openParticipationModal(entry)}
+                                      className="hover:bg-gray-50 transition-colors group cursor-pointer"
+                                    >
                                       <td className="px-6 py-4 text-sm text-gray-700 whitespace-nowrap">
-                                        {/* Format date if needed, assumed string YYYY-MM-DD based on input type date */}
-                                        {entry.date}
+                                        {entry.date || emptyText}
                                       </td>
                                       <td className="px-6 py-4 text-sm text-gray-800 font-medium">
-                                        {entry.activityName}
+                                        {entry.activityName || emptyText}
                                       </td>
                                       <td className="px-6 py-4 text-sm text-gray-600 text-center">
-                                        {entry.participantsCount}
+                                        {entry.participantsCount || emptyText}
                                       </td>
                                       <td className="px-6 py-4 text-sm text-gray-600 text-center">
                                         <div className="flex items-center justify-center gap-1">
@@ -1821,14 +2179,14 @@ const App: React.FC = () => {
                                       <td className="px-6 py-4 text-right">
                                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                           <button 
-                                            onClick={() => openParticipationModal(entry)}
+                                            onClick={(e) => { e.stopPropagation(); openParticipationModal(entry); }}
                                             className="p-1 text-gray-400 hover:text-primary transition-colors"
                                             title="Editar"
                                           >
                                             <Edit2 size={16} />
                                           </button>
                                           <button 
-                                            onClick={() => deleteParticipation(entry.id)}
+                                            onClick={(e) => { e.stopPropagation(); deleteParticipation(entry.id); }}
                                             className="p-1 text-gray-400 hover:text-red-500 transition-colors"
                                             title="Eliminar"
                                           >
@@ -1860,7 +2218,6 @@ const App: React.FC = () => {
                     {activeView === 'Calendario' && (
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up">
                           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 min-h-[600px] flex flex-col">
-                              {/* ... Calendar left side ... */}
                               <div className="flex flex-col items-center mb-6 space-y-2">
                                   <div className="relative">
                                       <select 
@@ -1961,7 +2318,7 @@ const App: React.FC = () => {
                                       <h3 className="font-medium text-gray-700 mb-4">Título del evento</h3>
                                       <div className="space-y-4">
                                           <input 
-                                              type="text"
+                                              type="text" 
                                               placeholder="Título"
                                               value={newEventData.title}
                                               onChange={(e) => setNewEventData({...newEventData, title: e.target.value})}
@@ -2018,7 +2375,7 @@ const App: React.FC = () => {
                                           <div key={event.id} className="border border-gray-200 rounded-lg p-4 hover:border-primary/30 hover:shadow-sm transition-all group">
                                               <div className="flex justify-between items-start">
                                                   <div>
-                                                      <h4 className="font-semibold text-gray-700 text-sm mb-1">{event.title}</h4>
+                                                      <h4 className="font-semibold text-gray-700 text-sm mb-1">{event.title || emptyText}</h4>
                                                       <p className="text-gray-500 text-xs">
                                                           {formatEventDate(event.startDate)}
                                                           {event.endDate && ` - ${formatEventDate(event.endDate)}`}
@@ -2043,7 +2400,6 @@ const App: React.FC = () => {
                     )}
 
                     {activeView === 'Bitácora' && (
-                        /* ... Logs code kept same ... */
                       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 min-h-[600px] animate-fade-in-up">
                           <h2 className="text-xl font-semibold text-gray-800 mb-6">Bitácora de seguimiento</h2>
                           <div className="mb-10 bg-gray-50 p-6 rounded-lg border border-gray-100">
@@ -2085,7 +2441,7 @@ const App: React.FC = () => {
                                               </span>
                                           </div>
                                           <div className="bg-white">
-                                              <h4 className="text-base font-semibold text-gray-800">{log.action}</h4>
+                                              <h4 className="text-base font-semibold text-gray-800">{log.action || emptyText}</h4>
                                               {log.details && (
                                                   <p className="text-gray-600 mt-1 text-sm leading-relaxed">{log.details}</p>
                                               )}
@@ -2140,7 +2496,7 @@ const App: React.FC = () => {
         isOpen={modals.investment}
         onClose={closeInvestmentModal}
         onSave={saveInvestment}
-        initialData={initiative.investment}
+        initialData={initiative.investments && initiative.investments[activeInvestmentIndex] ? initiative.investments[activeInvestmentIndex] : null}
       />
       
       <ExpensesModal 
@@ -2154,7 +2510,14 @@ const App: React.FC = () => {
         isOpen={modals.executionLicitacion}
         onClose={closeExecutionLicitacionModal}
         onSave={saveExecutionLicitacion}
-        initialData={initiative.execution?.licitacion}
+        initialData={initiative.execution?.licitaciones ? initiative.execution.licitaciones[activeLicitacionIndex] : null}
+      />
+
+      <ExecutionProgressModal 
+        isOpen={modals.executionProgress}
+        onClose={closeExecutionProgressModal}
+        onSave={saveExecutionProgress}
+        initialData={initiative.execution?.progress}
       />
 
       <ImpactIndicatorsModal
@@ -2164,7 +2527,13 @@ const App: React.FC = () => {
         initialData={initiative.impactIndicators}
       />
 
-      {/* Formulation Modals */}
+      <FulfillmentModal 
+        isOpen={modals.fulfillment}
+        onClose={() => setModals(prev => ({ ...prev, fulfillment: false }))}
+        result={activeResultToTrack}
+        onSave={saveFulfillment}
+      />
+
       <ProblemModal
         isOpen={modals.problem}
         onClose={() => setModals(prev => ({...prev, problem: false}))}
